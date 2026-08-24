@@ -120,16 +120,32 @@ install_alpine_from_minirootfs() {
 }
 
 ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS"
-if [ -d "$ROOTFS" ]; then
+
+is_rootfs_populated() {
+	[ -e "$ROOTFS/etc/os-release" ] || [ -e "$ROOTFS/bin/busybox" ]
+}
+
+remove_partial_rootfs() {
+	if [ -d "$ROOTFS" ]; then
+		warn "Removing incomplete previous install of '$ALIAS'"
+		proot-distro remove "$ALIAS" 2>/dev/null || rm -rf "$ROOTFS"
+	fi
+}
+
+if is_rootfs_populated; then
 	log "proot-distro alias '$ALIAS' already installed - reusing it"
 else
+	remove_partial_rootfs
 	log "Installing Alpine rootfs as '$ALIAS'"
 	if ! proot-distro install alpine --override-alias "$ALIAS"; then
 		warn "Docker Hub pull failed (this is a known proot-distro/Docker Hub issue," \
 		     "not specific to this script) - falling back to a direct minirootfs download."
+		remove_partial_rootfs
 		install_alpine_from_minirootfs
 	fi
 fi
+
+is_rootfs_populated || die "Rootfs install for '$ALIAS' did not complete (nothing under $ROOTFS). Run 'proot-distro remove $ALIAS' and re-run this script."
 
 # ---------------------------------------------------------------------------
 # 4. Guest setup script (runs as root inside the rootfs)
