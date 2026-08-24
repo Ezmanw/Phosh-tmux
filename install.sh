@@ -178,11 +178,12 @@ grep -q "${ALPINE_VERSION}/community" /etc/apk/repositories || \
 sort -u -o /etc/apk/repositories /etc/apk/repositories
 
 apk update
-apk upgrade --available
+apk upgrade --available || printf '  [!] apk upgrade reported errors; continuing.\n'
 
 # --- 4b. Base tooling, user, sudo ------------------------------------------
 log "Installing base tooling"
-apk add sudo shadow tzdata dbus dbus-x11 openssh vim
+apk add sudo shadow tzdata dbus dbus-x11 openssh vim || \
+	printf '  [!] apk reported errors installing base tooling; continuing.\n'
 
 log "Creating user '$GUEST_USER'"
 addgroup -S storage 2>/dev/null || true
@@ -220,7 +221,7 @@ grep -qxF "$PMOS_REPO" /etc/apk/repositories || printf '%s\n' "$PMOS_REPO" >> /e
 log "Importing postmarketOS signing keys"
 apk add -u --allow-untrusted postmarketos-keys
 apk update
-apk upgrade --available
+apk upgrade --available || printf '  [!] apk upgrade reported errors; continuing.\n'
 
 log "Writing /etc/os-release"
 cat > /etc/os-release <<OSRELEASE
@@ -238,21 +239,29 @@ OSRELEASE
 
 # --- 4e. Desktop / mobile shell --------------------------------------------
 log "Installing compositor base (openbox, cage)"
-apk add openbox cage
+apk add openbox cage || \
+	printf '  [!] apk reported errors installing openbox/cage; continuing.\n'
 
+# These pull in 600+ transitive packages. apk exits nonzero if even one of
+# them hits a post-install/trigger snag (e.g. a script running before its
+# runtime dependency is unpacked) even though the rest installed fine - do
+# not let 'set -e' kill the whole setup over that; 'apk fix' below cleans up.
 case "$UI" in
 	phosh)
 		log "Installing Phosh"
-		apk add postmarketos-ui-phosh postmarketos-tweaks
+		apk add postmarketos-ui-phosh postmarketos-tweaks || \
+			printf '  [!] apk reported errors installing Phosh packages; apk fix will retry below.\n'
 		;;
 	plasma-mobile)
 		log "Installing Plasma Mobile"
-		apk add postmarketos-ui-plasma-mobile postmarketos-tweaks
+		apk add postmarketos-ui-plasma-mobile postmarketos-tweaks || \
+			printf '  [!] apk reported errors installing Plasma Mobile packages; apk fix will retry below.\n'
 		;;
 	sxmo)
 		log "Installing SXMO"
 		apk add postmarketos-ui-sxmo-de-dwm postmarketos-tweaks-sxmo-x11 \
-			feh dwm svkbd conky clickclack
+			feh dwm svkbd conky clickclack || \
+			printf '  [!] apk reported errors installing SXMO packages; apk fix will retry below.\n'
 		;;
 esac
 
