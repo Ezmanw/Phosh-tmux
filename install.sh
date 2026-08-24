@@ -325,6 +325,20 @@ pacmd load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymou
 
 export DISPLAY=:0
 
+# Order matters here: termux-x11's own X server picks up virgl as its GPU
+# backend at ITS startup, so virgl_test_server_android has to already be
+# running before 'termux-x11 :0' starts - starting it after (or not at all)
+# is why phoc/cage crashed with 'Failed to query DRI3 DRM FD': the X server
+# advertises DRI3 but has no real device to hand back without virgl under it.
+if command -v virgl_test_server_android >/dev/null 2>&1; then
+	pkill -f virgl_test_server_android >/dev/null 2>&1 || true
+	virgl_test_server_android >/dev/null 2>&1 &
+	sleep 1
+else
+	echo "  [!] virgl_test_server_android not found - GPU acceleration unavailable," >&2
+	echo "      phoc/cage will likely fail to start without it." >&2
+fi
+
 # The Termux:X11 app provides the actual display surface and must be running
 # before 'termux-x11 :0' has anything to attach to - starting the X server
 # first does not launch it for you. Bring it to the foreground here.
@@ -349,23 +363,12 @@ if ! x11_socket_up; then
 	echo "      (github.com/termux/termux-x11/releases) is installed and open, then retry." >&2
 fi
 
-# Optional GPU acceleration.
-if command -v virgl_test_server_android >/dev/null 2>&1; then
-	pkill -f virgl_test_server_android >/dev/null 2>&1 || true
-	virgl_test_server_android >/dev/null 2>&1 &
-	sleep 1
-fi
-
 proot-distro login "\$ALIAS" --user "\$GUEST_USER" --shared-tmp -- /bin/sh -c '
 	export DISPLAY=:0
 	export XDG_RUNTIME_DIR=/tmp
 	export PULSE_SERVER=127.0.0.1
-	# Termux:X11 advertises the DRI3 extension but fails to hand back a real
-	# DRM device through it, which crashes wlroots (cage/phoc) trying to set
-	# up GPU buffer sharing. Force the software renderer instead - slower,
-	# but it actually starts. Drop this if your termux-x11/virgl setup gives
-	# working GPU acceleration.
-	export WLR_RENDERER=pixman
+	export GALLIUM_DRIVER=virpipe
+	export MESA_GL_VERSION_OVERRIDE=4.0
 	$START_CMD
 '
 LAUNCH_EOF
