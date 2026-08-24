@@ -347,7 +347,11 @@ am start -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || \
 	echo "  [!] Could not auto-launch it - open the 'Termux:X11' app manually now."
 sleep 2
 
-pkill -f 'termux-x11 :0' >/dev/null 2>&1 || true
+# The running process's argv is 'termux-x11 com.termux.x11 :0' (the app
+# package name is inserted in the middle), so a pattern requiring 'termux-x11
+# :0' adjacently never matches it and a stale instance keeps running.
+pkill -f 'termux-x11' >/dev/null 2>&1 || true
+sleep 1
 termux-x11 :0 >/dev/null 2>&1 &
 
 echo "Waiting for the X server..."
