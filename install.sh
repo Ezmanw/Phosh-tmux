@@ -325,13 +325,24 @@ pacmd load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymou
 
 export DISPLAY=:0
 
+# Tear everything down first. A leftover socket file from a killed instance
+# satisfies a plain '[ -S socket ]' check without anything actually
+# listening on it, which is why openbox/cage failed to connect even after
+# the readiness wait below passed. Force-stop the app itself too, not just
+# the helper process, so it doesn't end up stuck talking to a dead process.
+am force-stop com.termux.x11 >/dev/null 2>&1 || true
+pkill -f 'termux-x11' >/dev/null 2>&1 || true
+pkill -f virgl_test_server_android >/dev/null 2>&1 || true
+rm -f "\$PREFIX/tmp/.X11-unix/X0" "/tmp/.X11-unix/X0" \
+	"\$PREFIX/tmp/.X0-lock" "/tmp/.X0-lock" 2>/dev/null
+sleep 1
+
 # Order matters here: termux-x11's own X server picks up virgl as its GPU
 # backend at ITS startup, so virgl_test_server_android has to already be
 # running before 'termux-x11 :0' starts - starting it after (or not at all)
 # is why phoc/cage crashed with 'Failed to query DRI3 DRM FD': the X server
 # advertises DRI3 but has no real device to hand back without virgl under it.
 if command -v virgl_test_server_android >/dev/null 2>&1; then
-	pkill -f virgl_test_server_android >/dev/null 2>&1 || true
 	virgl_test_server_android >/dev/null 2>&1 &
 	sleep 1
 else
@@ -347,14 +358,11 @@ am start -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || \
 	echo "  [!] Could not auto-launch it - open the 'Termux:X11' app manually now."
 sleep 2
 
-# The running process's argv is 'termux-x11 com.termux.x11 :0' (the app
-# package name is inserted in the middle), so a pattern requiring 'termux-x11
-# :0' adjacently never matches it and a stale instance keeps running.
-pkill -f 'termux-x11' >/dev/null 2>&1 || true
-sleep 1
 termux-x11 :0 >/dev/null 2>&1 &
 
 echo "Waiting for the X server..."
+# The socket was removed above, so its existence now proves THIS instance
+# actually created it, not a leftover from a previous run.
 x11_socket_up() {
 	[ -S "\$PREFIX/tmp/.X11-unix/X0" ] || [ -S "/tmp/.X11-unix/X0" ]
 }
