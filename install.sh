@@ -179,6 +179,11 @@ sort -u -o /etc/apk/repositories /etc/apk/repositories
 
 apk update
 apk upgrade --available || printf '  [!] apk upgrade reported errors; continuing.\n'
+# A package left half-installed by an earlier interrupted/killed run (e.g. a
+# failed extraction) makes every later apk command report "N error(s)" for
+# that same stuck package until it is reconciled - clear it now instead of
+# tripping over it repeatedly below.
+apk fix || printf '  [!] apk fix reported errors; continuing.\n'
 
 # --- 4b. Base tooling, user, sudo ------------------------------------------
 log "Installing base tooling"
@@ -219,7 +224,8 @@ PMOS_REPO="https://mirror.postmarketos.org/postmarketos/$PMOS_VERSION"
 grep -qxF "$PMOS_REPO" /etc/apk/repositories || printf '%s\n' "$PMOS_REPO" >> /etc/apk/repositories
 
 log "Importing postmarketOS signing keys"
-apk add -u --allow-untrusted postmarketos-keys
+apk add -u --allow-untrusted postmarketos-keys || \
+	printf '  [!] apk reported errors importing postmarketos-keys; continuing.\n'
 apk update
 apk upgrade --available || printf '  [!] apk upgrade reported errors; continuing.\n'
 
