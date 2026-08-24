@@ -325,10 +325,29 @@ pacmd load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymou
 
 export DISPLAY=:0
 
-# X server. Open the Termux:X11 app after this starts.
+# The Termux:X11 app provides the actual display surface and must be running
+# before 'termux-x11 :0' has anything to attach to - starting the X server
+# first does not launch it for you. Bring it to the foreground here.
+echo "Opening the Termux:X11 app..."
+am start -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || \
+	echo "  [!] Could not auto-launch it - open the 'Termux:X11' app manually now."
+sleep 2
+
 pkill -f 'termux-x11 :0' >/dev/null 2>&1 || true
 termux-x11 :0 >/dev/null 2>&1 &
-sleep 3
+
+echo "Waiting for the X server..."
+x11_socket_up() {
+	[ -S "\$PREFIX/tmp/.X11-unix/X0" ] || [ -S "/tmp/.X11-unix/X0" ]
+}
+for _ in \$(seq 1 30); do
+	x11_socket_up && break
+	sleep 1
+done
+if ! x11_socket_up; then
+	echo "  [!] X server socket never appeared. Make sure the Termux:X11 app" >&2
+	echo "      (github.com/termux/termux-x11/releases) is installed and open, then retry." >&2
+fi
 
 # Optional GPU acceleration.
 if command -v virgl_test_server_android >/dev/null 2>&1; then
@@ -336,8 +355,6 @@ if command -v virgl_test_server_android >/dev/null 2>&1; then
 	virgl_test_server_android >/dev/null 2>&1 &
 	sleep 1
 fi
-
-echo "Switch to the Termux:X11 app now."
 
 proot-distro login "\$ALIAS" --user "\$GUEST_USER" --shared-tmp -- /bin/sh -c '
 	export DISPLAY=:0
