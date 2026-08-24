@@ -119,47 +119,32 @@ install_alpine_from_minirootfs() {
 	rm -f "$tmp_tar"
 }
 
-# proot-distro >=5.x keeps rootfs under containers/<name>/rootfs; older
-# versions used installed-rootfs/<name> directly (auto-migrated by 'login').
-if [ -d "$PREFIX/var/lib/proot-distro/containers/$ALIAS/rootfs" ]; then
-	ROOTFS="$PREFIX/var/lib/proot-distro/containers/$ALIAS/rootfs"
-elif [ -d "$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS" ]; then
-	ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS"
-else
-	ROOTFS="$PREFIX/var/lib/proot-distro/containers/$ALIAS/rootfs"
-fi
-
-is_rootfs_populated() {
-	[ -e "$ROOTFS/etc/os-release" ] || [ -e "$ROOTFS/bin/busybox" ]
+# Never assume proot-distro's internal storage layout (it has changed across
+# versions) - ask it directly by trying to log in, and drive every guest file
+# operation below through 'proot-distro login' too instead of a host path.
+pmos_exists() {
+	proot-distro login "$ALIAS" --shared-tmp -- true >/dev/null 2>&1
 }
 
-remove_partial_rootfs() {
-	if [ -d "$ROOTFS" ]; then
-		warn "Removing incomplete previous install of '$ALIAS'"
-		proot-distro remove "$ALIAS" 2>/dev/null || rm -rf "$ROOTFS"
-	fi
-}
-
-if is_rootfs_populated; then
+if pmos_exists; then
 	log "proot-distro alias '$ALIAS' already installed - reusing it"
 else
-	remove_partial_rootfs
+	proot-distro remove "$ALIAS" >/dev/null 2>&1 || true
 	log "Installing Alpine rootfs as '$ALIAS'"
 	if ! proot-distro install alpine --override-alias "$ALIAS"; then
 		warn "Docker Hub pull failed (this is a known proot-distro/Docker Hub issue," \
 		     "not specific to this script) - falling back to a direct minirootfs download."
-		remove_partial_rootfs
+		proot-distro remove "$ALIAS" >/dev/null 2>&1 || true
 		install_alpine_from_minirootfs
 	fi
+	pmos_exists || die "Rootfs install for '$ALIAS' did not complete. Run 'proot-distro remove $ALIAS' and re-run this script."
 fi
-
-is_rootfs_populated || die "Rootfs install for '$ALIAS' did not complete (nothing under $ROOTFS). Run 'proot-distro remove $ALIAS' and re-run this script."
 
 # ---------------------------------------------------------------------------
 # 4. Guest setup script (runs as root inside the rootfs)
 # ---------------------------------------------------------------------------
 log "Writing guest setup script"
-cat > "$ROOTFS/root/pmos-setup.sh" <<GUEST_EOF
+proot-distro login "$ALIAS" --shared-tmp -- sh -c 'cat > /root/pmos-setup.sh' <<GUEST_EOF
 #!/bin/sh
 set -eu
 
@@ -171,7 +156,7 @@ UI="$UI"
 INSTALL_EXTRAS="$INSTALL_EXTRAS"
 GUEST_EOF
 
-cat >> "$ROOTFS/root/pmos-setup.sh" <<'GUEST_EOF'
+proot-distro login "$ALIAS" --shared-tmp -- sh -c 'cat >> /root/pmos-setup.sh' <<'GUEST_EOF'
 
 log() { printf '\033[1;36m  ->\033[0m %s\n' "$*"; }
 
@@ -272,7 +257,7 @@ fi
 log "Guest setup complete."
 GUEST_EOF
 
-chmod +x "$ROOTFS/root/pmos-setup.sh"
+proot-distro login "$ALIAS" --shared-tmp -- chmod +x /root/pmos-setup.sh
 
 log "Running guest setup (this downloads a few hundred MB and takes a while)"
 proot-distro login "$ALIAS" --shared-tmp -- /bin/sh /root/pmos-setup.sh
