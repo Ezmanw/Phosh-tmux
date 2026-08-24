@@ -79,6 +79,20 @@ Picking a different `--ui` also names the launcher accordingly
 Re-running the script against an existing alias reuses the rootfs and just
 re-applies the setup, so it is safe to run again after a failure.
 
+## Troubleshooting
+
+**`Failed to install: Unauthorized: 'alpine' does not exist or is a private
+image`** — this is a known issue with `proot-distro` pulling images anonymously
+from Docker Hub ([termux/proot-distro#692](https://github.com/termux/proot-distro/issues/692)),
+not something specific to this script. `install.sh` now detects this and
+automatically falls back to downloading Alpine's official minirootfs tarball
+directly and installing it as a local archive, which bypasses Docker Hub
+entirely. Just re-run the script (or `bash install.sh` again) and it will pick
+up the fallback path. If it still fails, check that you can reach
+`dl-cdn.alpinelinux.org` (`curl -I https://dl-cdn.alpinelinux.org`), or
+authenticate the Docker Hub pull instead with a free Docker Hub account:
+`PD_DOCKER_AUTH=user:token bash install.sh`.
+
 ## Notes
 
 - Everything runs in proot, so there is no real hardware access — no calls, no

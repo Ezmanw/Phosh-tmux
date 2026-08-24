@@ -77,12 +77,58 @@ pkg install -y virglrenderer-android || warn "virglrenderer-android unavailable 
 # ---------------------------------------------------------------------------
 # 3. Alpine rootfs
 # ---------------------------------------------------------------------------
+
+# proot-distro's normal path pulls the 'alpine' image from Docker Hub. That
+# pull has been unreliable (anonymous-pull "Unauthorized ... does not exist
+# or is a private image" errors, see termux/proot-distro#692) independent of
+# this script. If it fails, fetch Alpine's own minirootfs tarball and hand it
+# to proot-distro as a local archive instead - it bypasses Docker Hub entirely.
+install_alpine_from_minirootfs() {
+	local uname_arch alpine_arch pd_arch base_ver mirror_dir listing latest tarball tmp_tar
+
+	uname_arch="$(uname -m)"
+	case "$uname_arch" in
+		aarch64) alpine_arch="aarch64"; pd_arch="aarch64" ;;
+		armv7l|armv8l) alpine_arch="armv7"; pd_arch="arm" ;;
+		x86_64) alpine_arch="x86_64"; pd_arch="x86_64" ;;
+		i686|i386) alpine_arch="x86"; pd_arch="i686" ;;
+		*) die "Unsupported architecture for minirootfs fallback: $uname_arch" ;;
+	esac
+
+	base_ver="${ALPINE_VERSION#v}"
+	mirror_dir="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/releases/$alpine_arch"
+
+	log "Looking up latest Alpine $base_ver minirootfs for $alpine_arch"
+	listing="$(curl -fsSL "$mirror_dir/" || true)"
+	[ -n "$listing" ] || die "Could not reach $mirror_dir - check your network."
+
+	latest="$(printf '%s\n' "$listing" \
+		| grep -oE "alpine-minirootfs-${base_ver}\.[0-9]+-${alpine_arch}\.tar\.gz" \
+		| sort -t. -k3 -n | tail -n1)"
+	[ -n "$latest" ] || die "No minirootfs found for Alpine $base_ver/$alpine_arch at $mirror_dir"
+
+	tarball="$mirror_dir/$latest"
+	tmp_tar="$PREFIX/tmp/$latest"
+	mkdir -p "$PREFIX/tmp"
+
+	log "Downloading $tarball"
+	curl -fL --progress-bar -o "$tmp_tar" "$tarball" || die "Download failed: $tarball"
+
+	log "Installing minirootfs as '$ALIAS' (arch: $pd_arch)"
+	proot-distro install "$tmp_tar" --name "$ALIAS" --architecture "$pd_arch"
+	rm -f "$tmp_tar"
+}
+
 ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS"
 if [ -d "$ROOTFS" ]; then
 	log "proot-distro alias '$ALIAS' already installed - reusing it"
 else
 	log "Installing Alpine rootfs as '$ALIAS'"
-	proot-distro install alpine --override-alias "$ALIAS"
+	if ! proot-distro install alpine --override-alias "$ALIAS"; then
+		warn "Docker Hub pull failed (this is a known proot-distro/Docker Hub issue," \
+		     "not specific to this script) - falling back to a direct minirootfs download."
+		install_alpine_from_minirootfs
+	fi
 fi
 
 # ---------------------------------------------------------------------------
