@@ -160,13 +160,22 @@ proot-distro login "$ALIAS" --shared-tmp -- sh -c 'cat >> /root/pmos-setup.sh' <
 
 log() { printf '\033[1;36m  ->\033[0m %s\n' "$*"; }
 
-# --- 4a. Pin Alpine to a stable branch (edge breaks pmOS packages) ----------
+# --- 4a. Pin Alpine to a stable branch (edge/wrong branch breaks pmOS packages) ---
 log "Pinning Alpine repositories to $ALPINE_VERSION"
-sed -i "s|/edge/|/$ALPINE_VERSION/|g" /etc/apk/repositories
+# The base image's repositories may already point at 'edge' OR at some other
+# release branch (e.g. v3.24) rather than 'edge' - rewrite either form so
+# main and community always end up on the SAME branch. Leaving them mismatched
+# (e.g. main on v3.24, community on v3.20) causes file-ownership conflicts
+# between packages built for different Alpine releases.
+sed -i -E "s#(https?://dl-cdn\.alpinelinux\.org/alpine/)(edge|v[0-9]+\.[0-9]+)(/(main|community))#\1${ALPINE_VERSION}\3#g" /etc/apk/repositories
+# Uncomment a disabled community line, if present.
+sed -i -E "s|^#\s*(https?://dl-cdn\.alpinelinux\.org/alpine/${ALPINE_VERSION}/community)|\1|" /etc/apk/repositories
 # Make sure both main and community are present and enabled.
-grep -q "$ALPINE_VERSION/community" /etc/apk/repositories || \
+grep -q "${ALPINE_VERSION}/main" /etc/apk/repositories || \
+	printf 'https://dl-cdn.alpinelinux.org/alpine/%s/main\n' "$ALPINE_VERSION" >> /etc/apk/repositories
+grep -q "${ALPINE_VERSION}/community" /etc/apk/repositories || \
 	printf 'https://dl-cdn.alpinelinux.org/alpine/%s/community\n' "$ALPINE_VERSION" >> /etc/apk/repositories
-sed -i 's|^#\(https://dl-cdn.alpinelinux.org/alpine/.*\)|\1|' /etc/apk/repositories
+sort -u -o /etc/apk/repositories /etc/apk/repositories
 
 apk update
 apk upgrade --available
@@ -253,6 +262,13 @@ if [ "$INSTALL_EXTRAS" = "1" ]; then
 		font-noto-cjk-extra font-noto-emoji || \
 		printf '  [!] Some extras failed to install; continuing.\n'
 fi
+
+# apk installs packages in dependency order, not the order some post-install
+# scripts assume (e.g. postmarketos-tweaks can run before openrc exists, so
+# its 'rc-update' calls fail). Re-run any missed/failed post-install steps
+# and retry any package that failed to extract now that everything is on disk.
+log "Reconciling any packages that failed post-install steps"
+apk fix || true
 
 log "Guest setup complete."
 GUEST_EOF
