@@ -119,7 +119,15 @@ install_alpine_from_minirootfs() {
 	rm -f "$tmp_tar"
 }
 
-ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS"
+# proot-distro >=5.x keeps rootfs under containers/<name>/rootfs; older
+# versions used installed-rootfs/<name> directly (auto-migrated by 'login').
+if [ -d "$PREFIX/var/lib/proot-distro/containers/$ALIAS/rootfs" ]; then
+	ROOTFS="$PREFIX/var/lib/proot-distro/containers/$ALIAS/rootfs"
+elif [ -d "$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS" ]; then
+	ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/$ALIAS"
+else
+	ROOTFS="$PREFIX/var/lib/proot-distro/containers/$ALIAS/rootfs"
+fi
 
 is_rootfs_populated() {
 	[ -e "$ROOTFS/etc/os-release" ] || [ -e "$ROOTFS/bin/busybox" ]
