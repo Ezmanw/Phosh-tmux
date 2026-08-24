@@ -360,7 +360,12 @@ proot-distro login "\$ALIAS" --user "\$GUEST_USER" --shared-tmp -- /bin/sh -c '
 	export DISPLAY=:0
 	export XDG_RUNTIME_DIR=/tmp
 	export PULSE_SERVER=127.0.0.1
-	export GALLIUM_DRIVER=virpipe
+	# Termux:X11 advertises the DRI3 extension but fails to hand back a real
+	# DRM device through it, which crashes wlroots (cage/phoc) trying to set
+	# up GPU buffer sharing. Force the software renderer instead - slower,
+	# but it actually starts. Drop this if your termux-x11/virgl setup gives
+	# working GPU acceleration.
+	export WLR_RENDERER=pixman
 	$START_CMD
 '
 LAUNCH_EOF
